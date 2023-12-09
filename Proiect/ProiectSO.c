@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -18,7 +19,7 @@ int argCheck(int x)
 {
     if(x!=3)
     {
-        perror("invalid number of arguments\n");
+        perror("Forma corecta: ./nume <dir intrare> <dir iesire>\n");
         return 1;
     }
     return 0;
@@ -27,6 +28,16 @@ int argCheck(int x)
 int openFile(char *filename)
 {
     int fin=open(filename,O_RDONLY);
+    if(fin==-1)
+    {
+        perror("cannot open input file\n");
+    }
+    return fin;
+}
+
+int openFileForWrite(char *filename)
+{
+    int fin=open(filename,O_RDWR);
     if(fin==-1)
     {
         perror("cannot open input file\n");
@@ -323,9 +334,55 @@ void outputREG(int fileIN,int fileOUT, int fileSTATS, char *name)
     free(rightsOTH);
 }
 
+void outputLinesNumber(int fileOUT, int nrlinii)
+{
+    char output[OUT_SIZE];
+    sprintf(output, "`%s` a returnat %d linii\n", dirInfo->d_name,nrlinii);
+    if (write(fileOUT,output,strlen(output))==-1)
+    {
+        perror("Error writing to output file");
+    }
+}
+
+void convertGreyscale(char *aux)    //24 biti only
+{
+    int fin=openFileForWrite(aux);
+    int w, h, offset,bitCount;
+    uint8_t pixel[3],greyP;
+
+    lseek(fin,10,SEEK_SET);
+    read(fin,&offset,sizeof(offset));
+    lseek(fin,18,SEEK_SET);
+    read(fin, &w, sizeof(int));
+    read(fin, &h, sizeof(int));
+    lseek(fin,2,SEEK_CUR);
+    read(fin,&bitCount,sizeof(bitCount));
+
+    if(bitCount==24)
+    {
+        for (int j = 0; j < h*w; j++) {   
+            read(fin, &pixel, sizeof(pixel));       //blue = pixel[0];green = pixel[1];red = pixel[2];
+            
+            greyP=0.299*pixel[2] + 0.587*pixel[1] + 0.144*pixel[0];
+            pixel[0]=pixel[1]=pixel[2]=greyP;
+            
+            lseek(fin,-3,SEEK_CUR);
+            write(fin,pixel,sizeof(pixel));
+        }
+        close(fin);
+    }
+    else
+    {
+        printf("Bit Count diferit fata de cel programat pentru %s",aux);
+        close(fin);
+        exit(EXIT_FAILURE);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     char *fp, *outFileName;
+    int sta;
     if(argCheck(argc))
     {
         exit(-1);
@@ -334,7 +391,7 @@ int main(int argc, char *argv[])
     DIR *din=openDir(argv[1]);
     DIR *dout=openDir(argv[2]);
 
-    //int fout=outputFileCreator(argv[2],"statistica.txt"); trebe facut + poza
+    int fout=outputFileCreator(argv[2],"statistica.txt");
     
     while((dirInfo=readdir(din))!=NULL)
     {
@@ -356,9 +413,18 @@ int main(int argc, char *argv[])
                 free(fp);
                 close(file);
                 close(bmpfile);
-                printf("%s Child Succes\n", dirInfo->d_name);
+                outputLinesNumber(fout,10);
                 exit(EXIT_SUCCESS);
             }
+            printf("S-a incheiat procesul cu pid: %d si codul: %d pentru fisierul: %s\n", wait(&sta), sta,dirInfo->d_name);
+            
+            int fork_greyscale=0;
+            if(fork_greyscale == 0)
+            {
+                fp = getFilePath(argv[1]);
+                convertGreyscale(fp);
+            }
+            printf("S-a incheiat procesul de grayscale cu pid: %d si codul: %d pentru fisierul: %s\n", wait(&sta), sta,dirInfo->d_name);
         }
         else if(isDIR(dirInfo->d_type))
         {
@@ -374,9 +440,10 @@ int main(int argc, char *argv[])
                 free(fp);
                 close(file);
                 close(dirfile);
-                printf("%s Child Succes\n", dirInfo->d_name);
+                outputLinesNumber(fout,5);
                 exit(EXIT_SUCCESS);
             }
+            printf("S-a incheiat procesul cu pid: %d si codul: %d pentru fisierul: %s\n", wait(&sta), sta,dirInfo->d_name);
         }
         else if(isLINK(dirInfo->d_type))
         {   
@@ -392,9 +459,10 @@ int main(int argc, char *argv[])
                 free(fp);
                 close(file);
                 close(linkfile);
-                printf("%s Child Succes\n", dirInfo->d_name);
+                outputLinesNumber(fout,6);
                 exit(EXIT_SUCCESS);
             }
+            printf("S-a incheiat procesul cu pid: %d si codul: %d pentru fisierul: %s\n", wait(&sta), sta,dirInfo->d_name);
         }
         else if(isREG(dirInfo->d_type))
         {
@@ -410,12 +478,16 @@ int main(int argc, char *argv[])
                 free(fp);
                 close(file);
                 close(regfile);
-                printf("%s Child Succes\n", dirInfo->d_name);
+                outputLinesNumber(fout,8);
                 exit(EXIT_SUCCESS);
             }
-        }
+            printf("S-a incheiat procesul cu pid: %d si codul: %d pentru fisierul: %s\n", wait(&sta), sta,dirInfo->d_name);
+        
+            
+        }    
     }
 
+    close(fout);
     closedir(din);
     closedir(dout);
 
